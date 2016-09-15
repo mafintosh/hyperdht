@@ -1,7 +1,7 @@
 {
   "name": "hyperdht",
   "version": "0.0.0",
-  "description": "WIP - nothing to see here",
+  "description": "WIP dht based on kademlia, with a focus on extensibility + modularity",
   "main": "index.js",
   "dependencies": {
     "inherits": "^2.0.3",
