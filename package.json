@@ -1,0 +1,28 @@
+{
+  "name": "hyperdht",
+  "version": "0.0.0",
+  "description": "WIP - nothing to see here",
+  "main": "index.js",
+  "dependencies": {
+    "inherits": "^2.0.3",
+    "ipv4-peers": "^1.1.1",
+    "k-bucket": "^3.2.1",
+    "protocol-buffers": "^3.1.6"
+  },
+  "devDependencies": {
+    "standard": "^8.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mafintosh/hyperdht.git"
+  },
+  "scripts": {
+    "test": "standard"
+  },
+  "author": "Mathias Buus (@mafintosh)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/mafintosh/hyperdht/issues"
+  },
+  "homepage": "https://github.com/mafintosh/hyperdht"
+}
