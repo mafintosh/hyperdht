@@ -81,13 +81,14 @@ Store.prototype._gc = function () {
 }
 
 Store.prototype.iterator = function (key) {
-  var list = this._lists[key] || []
-  var prevList = this._pLists[key] || []
-  var i = 0
-  var pi = 0
+  var list = this._lists[key] || empty
+  var prevList = this._pLists[key] || empty
   var missing = list.length + prevList.length
   var maxAge = this.maxAge
   var now = Date.now()
+
+  var i = 0
+  var pi = 0
 
   return function () {
     while (true) {

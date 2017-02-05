@@ -6,6 +6,7 @@
   "dependencies": {
     "buffer-equals": "^1.0.4",
     "dht-rpc": "^2.2.0",
+    "inherits": "^2.0.3",
     "ipv4-peers": "^1.1.1",
     "minimist": "^1.2.0",
     "protocol-buffers": "^3.2.1",
