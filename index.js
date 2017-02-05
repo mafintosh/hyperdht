@@ -1,249 +1,271 @@
-var rpc = require('./rpc')
-var KBucket = require('k-bucket')
+var dht = require('dht-rpc')
+var protobuf = require('protocol-buffers')
 var ipv4 = require('ipv4-peers')
-var events = require('events')
+var equals = require('buffer-equals')
+var store = require('./store')
+var fs = require('fs')
 var inherits = require('inherits')
-var crypto = require('crypto')
+var events = require('events')
+var path = require('path')
 
-module.exports = DHT
+var PEERS = new Buffer(1024)
+var LOCAL_PEERS = new Buffer(1024)
 
-function DHT (opts) {
-  if (!(this instanceof DHT)) return new DHT(opts)
-  if (!opts) opts = {}
+var messages = protobuf(fs.readFileSync(path.join(__dirname, 'schema.proto')))
 
+module.exports = HyperDHT
+
+function HyperDHT (opts) {
+  if (!(this instanceof HyperDHT)) return new HyperDHT(opts)
   events.EventEmitter.call(this)
 
+  this.dht = dht(opts)
+  this.id = this.dht.id
+  this.socket = this.dht.socket.socket
+  this._store = store()
+
   var self = this
 
-  this.rpc = rpc(opts)
-  this.id = this.rpc.id
-  this.concurrency = opts.concurrency || 20
-  this.bootstrap = [].concat(opts.bootstrap || [])
-  this.nodes = new KBucket({localNodeId: this.id})
-
-  this._pendingQueries = []
-  this._methods = {}
-  this._bootstrapped = false
-  this._secrets = [crypto.randomBytes(32), crypto.randomBytes(32)]
-  this._interval = setInterval(rotate, 30 * 1000)
-
-  this.rpc.on('response', function (response, from) {
-    self._onresponse(response, from)
+  this.dht.on('error', function (err) {
+    self.emit('error', err)
   })
 
-  this.rpc.on('query', function (query, from) {
-    self._onquery(query, from)
+  this.dht.on('query:peers', function (data, cb) {
+    self._onquery(data, false, cb)
   })
 
-  this.rpc.on('update', function () {
-    self._onupdate()
-  })
-
-  function rotate () {
-    self._rotateSecrets()
-  }
-
-  process.nextTick(function () {
-    self._bootstrap(function () {
-      self._bootstrapped = true
-      self.emit('bootstrap')
-    })
+  this.dht.on('update:peers', function (data, cb) {
+    self._onquery(data, true, cb)
   })
 }
 
-inherits(DHT, events.EventEmitter)
+inherits(HyperDHT, events.EventEmitter)
 
-DHT.prototype._rotateSecrets = function () {
-  this._secrets[1] = this._secrets[0]
-  this._secrets[0] = crypto.randomBytes(32)
+HyperDHT.prototype._onquery = function (data, update, cb) {
+  var req = data.value && decode(messages.Request, data.value)
+  if (!req) return cb()
+  var res = this._processPeers(req, data, update)
+  if (!res) return cb()
+  cb(null, messages.Response.encode(res))
 }
 
-DHT.prototype.query = function (query) {
-  var self = this
-  var stream = require('stream').Readable({objectMode: true})
-  var table = new KBucket({localNodeId: query.target})
-  var message = {
-    method: query.method,
-    target: query.target,
-    value: query.value
+HyperDHT.prototype._processPeers = function (req, data, update) {
+  var from = {host: data.node.host, port: req.port || data.node.port}
+  if (!from.port) return null // TODO: nessesary? check dht-rpc / udp-socket
+
+  var key = data.target.toString('hex')
+  var peer = encodePeer(from)
+
+  if (update && req.type === 1) {
+    var id = from.host + ':' + from.port
+    var stored = {
+      localFilter: null,
+      localPeer: null,
+      peer: peer
+    }
+
+    if (req.localAddress && decodePeer(req.localAddress)) {
+      stored.localFilter = req.localAddress.slice(0, 2)
+      stored.localPeer = req.localAddress.slice(2)
+    }
+
+    this.emit('announce', data.target, from)
+    this._store.put(key, id, stored)
+  } else if (update && req.type === 2) {
+    this.emit('unannounce', data.target, from)
+    this._store.del(key, from.host + ':' + from.port)
+    return null
+  } else if (req.type === 0) {
+    this.emit('lookup', data.target)
   }
 
-  stream._read = function () {}
+  var off1 = 0
+  var off2 = 0
+  var next = this._store.iterator(key)
+  var filter = req.localAddress && req.localAddress.length === 6 && req.localAddress.slice(0, 2)
 
-  if (this._bootstrapped) start()
-  else this.once('bootstrap', start) // TODO: suspend bootstrapping instead
+  while (off1 + off2 < 900) {
+    var n = next()
+    if (!n) break
+    if (equals(n.peer, peer)) continue
+
+    n.peer.copy(PEERS, off1)
+    off1 += 6
+
+    if (n.localPeer && filter && filter[0] === n.localFilter[0] && filter[1] === n.localFilter[1]) {
+      if (!equals(n.localPeer, req.localAddress)) {
+        n.localPeer.copy(LOCAL_PEERS, off2)
+        off2 += 4
+      }
+    }
+  }
+
+  if (!off1 && !off2) return null
+
+  return {
+    peers: PEERS.slice(0, off1),
+    localPeers: off2 ? LOCAL_PEERS.slice(0, off2) : null
+  }
+}
+
+HyperDHT.prototype._processPeersLocal = function (key, req, stream) {
+  if (!this._store.has(key.toString('hex'))) return
+
+  var data = {node: {id: this.dht.id, host: '127.0.0.1', port: this.dht.address().port}, target: key}
+  var res = this._processPeers(req, data, false)
+  if (!res) return
+
+  stream.push({
+    node: data.node,
+    peers: ipv4.decode(res.peers),
+    localPeers: decodeLocalPeers(res.localPeers, req.localAddress)
+  })
+}
+
+HyperDHT.prototype.address = function () {
+  return this.dht.address()
+}
+
+HyperDHT.prototype.listen = function (port, cb) {
+  this.dht.listen(port, cb)
+}
+
+HyperDHT.prototype.destroy = function (cb) {
+  this.dht.destroy(cb)
+}
+
+HyperDHT.prototype.ready = function (cb) {
+  this.dht.ready(cb)
+}
+
+HyperDHT.prototype.holepunch = function (peer, ref, cb) {
+  if (ref.id && equals(ref.id, this.id)) return cb()
+  this.dht.holepunch(peer, ref, cb)
+}
+
+HyperDHT.prototype.announce = function (key, opts, cb) {
+  if (typeof opts === 'function') return this.announce(key, null, opts)
+  if (typeof opts === 'number') opts = {port: opts}
+  if (!opts) opts = {}
+
+  var localAddress = encodePeer(opts.localAddress)
+  var req = {
+    type: 1,
+    port: opts.port || 0,
+    localAddress: localAddress
+  }
+
+  var map = mapper(localAddress)
+  var stream = this.dht.update({
+    target: key,
+    command: 'peers',
+    value: messages.Request.encode(req)
+  }, {
+    query: true,
+    map: map
+  }, cb)
+
+  this._processPeersLocal(key, req, stream)
 
   return stream
+}
 
-  function start () {
-    self._queryClosest(message, onreply, done)
+HyperDHT.prototype.unannounce = function (key, opts, cb) {
+  if (typeof opts === 'function') return this.unannounce(key, null, opts)
+  if (typeof opts === 'number') opts = {port: opts}
+  if (!opts) opts = {}
+
+  var req = {
+    type: 2,
+    port: opts.port || 0,
+    localAddress: encodePeer(opts.localAddress)
   }
 
-  function onreply (res, from) {
-    res.port = from.port
-    res.host = from.host
-    if (res.token) table.add(res)
-    stream.push(res)
+  this.dht.update({
+    target: key,
+    command: 'peers',
+    value: messages.Request.encode(req)
+  }, cb)
+}
+
+HyperDHT.prototype.lookup = function (key, opts, cb) {
+  if (typeof opts === 'function') return this.lookup(key, null, opts)
+  if (!opts) opts = {}
+  if (opts.localAddress && !opts.localAddress.port) opts.localAddress.port = 0
+
+  var localAddress = encodePeer(opts.localAddress)
+  var req = {
+    type: 0,
+    localAddress: localAddress,
+    port: opts.port || 0
   }
 
-  function done (err) {
-    if (!query.token) return stream.push(null)
-    var nodes = table.closest(query.target, 20)
+  var map = mapper(localAddress)
+  var stream = this.dht.query({
+    target: key,
+    command: 'peers',
+    value: messages.Request.encode(req)
+  }, {
+    map: map
+  }, cb)
 
-    self._queryAll(query, nodes, onreply, function () {
-      stream.push(null)
+  this._processPeersLocal(key, req, stream)
+
+  return stream
+}
+
+function mapper (localAddress) {
+  return map
+
+  function map (data) {
+    var res = decode(messages.Response, data.value)
+    if (!res) return null
+
+    var peers = res.peers && decode(ipv4, res.peers)
+    if (!peers) return null
+
+    var v = {
+      node: data.node,
+      peers: peers,
+      localPeers: decodeLocalPeers(res.localPeers, localAddress)
+    }
+
+    return v
+  }
+}
+
+function decodeLocalPeers (buf, localAddress) {
+  var localPeers = []
+  if (!localAddress || !buf) return localPeers
+
+  for (var i = 0; i < buf.length; i += 4) {
+    if (buf.length - i < 4) return localPeers
+
+    var port = buf.readUInt16BE(i + 2)
+    if (!port || port === 65536) continue
+
+    localPeers.push({
+      host: localAddress[0] + '.' + localAddress[1] + '.' + buf[i] + '.' + buf[i + 1],
+      port: port
     })
   }
+
+  return localPeers
 }
 
-DHT.prototype._bootstrap = function (cb) {
-  this._queryClosest({method: '_find_node', target: this.id}, null, cb)
+function encodePeer (p) {
+  return p && ipv4.encode([p])
 }
 
-DHT.prototype._ping = function (node, cb) {
-  this._query({method: '_ping'}, node, function (err, response) {
-    if (err) return cb(err)
-
-    try {
-      var whoami = ipv4.decode(response.value)[0]
-    } catch (err) {
-      return cb(err)
-    }
-
-    if (!whoami) return cb(new Error('Invalid response'))
-    cb(null, whoami)
-  })
+function decodePeer (b) {
+  var p = b && decode(ipv4, b)
+  return p && p[0]
 }
 
-DHT.prototype._onping = function (query, from) {
-  this.rpc.response(query, {value: ipv4.encode([from])}, from)
-}
-
-DHT.prototype._onfindnode = function (query, from) {
-  if (!query.target) return // TODO: error reploy
-  var nodes = this.nodes.closest(query.target, 20)
-  this.rpc.response(query, {nodes: nodes}, from)
-}
-
-DHT.prototype._query = function (query, node, cb) {
-  if (this.rpc.inflight >= this.concurrency || this._pendingQueries.length) {
-    this._pendingQueries.push({query: query, node: node, callback: cb})
-  } else {
-    this.rpc.query(query, node, cb)
+function decode (enc, buf) {
+  try {
+    return enc.decode(buf)
+  } catch (err) {
+    return null
   }
-}
-
-DHT.prototype._queryAll = function (query, nodes, onresponse, cb) {
-  var missing = nodes.length
-  if (!missing) return cb(null)
-
-  for (var i = 0; i < nodes.length; i++) {
-    var q = {method: query.method, target: query.target, value: query.value, token: nodes[i].token}
-    this._query(q, nodes[i], done)
-  }
-
-  function done (err, res, from) {
-    if (--missing) return
-    if (!err && onresponse) onresponse(res, from)
-    cb(null)
-  }
-}
-
-DHT.prototype._queryClosest = function (query, onresponse, cb) {
-  if (!cb) cb = noop
-
-  var self = this
-  var queried = {}
-  var inflight = 0
-  var stats = {responses: 0, errors: 0}
-  var table = new KBucket({localNodeId: query.target})
-
-  this.bootstrap.forEach(send) // TODO: use cached table, the bootstrap table, then bootstrap nodes
-
-  function send (node) {
-    var addr = node.host + ':' + node.port
-    if (queried[addr]) return
-    queried[addr] = true
-    inflight++
-    self._query(query, node, next)
-  }
-
-  function next (err, response, from) {
-    inflight--
-
-    if (response) {
-      if (onresponse && !err) onresponse(response, from)
-
-      var nodes = response.nodes
-      table.add(from)
-
-      for (var i = 0; i < nodes.length; i++) {
-        var n = nodes[i]
-        if (!n.id.equals(self.id)) table.add(n)
-      }
-
-      var closest = table.closest(query.target, 20)
-      for (var j = 0; j < closest.length; j++) {
-        send(closest[j])
-      }
-      stats.responses++
-    } else {
-      stats.errors++
-    }
-
-    if (!inflight) cb(null, stats)
-  }
-}
-
-DHT.prototype._onquery = function (query, from) {
-  this.nodes.add(from)
-
-  switch (query.method) {
-    case '_ping': return this._onping(query, from)
-    case '_find_node': return this._onfindnode(query, from)
-  }
-
-  this._onmethod(query, from)
-}
-
-DHT.prototype._onmethod = function (query, from) {
-  var self = this
-
-  if (query.token) {
-    if (!hmac(this._secrets[0], from.host).equals(query.token)) {
-      if (!hmac(this._secrets[1], from.host).equals(query.token)) {
-        query.token = null
-      }
-    }
-  }
-
-  if (!this.emit('query', query, from, reply)) reply(new Error('Unknown method'))
-
-  function reply (err, value) {
-    var nodes = query.target && self.nodes.closest(query.target, 20)
-    var token = hmac(self._secrets[0], from.host)
-    if (err) return self.rpc.error(query, {value: null, nodes: nodes, token: token}, from)
-    self.rpc.response(query, {value: value, nodes: nodes, token: token}, from)
-  }
-}
-
-DHT.prototype._onresponse = function (response, from) {
-  this.nodes.add(from)
-}
-
-DHT.prototype._onupdate = function () {
-  while (this.rpc.inflight < this.concurrency && this._pendingQueries.length) {
-    var next = this._pendingQueries.shift()
-    this.rpc.query(next.query, next.node, next.callback)
-  }
-}
-
-DHT.prototype.listen = function (port, cb) {
-  this.rpc.bind(port, cb)
-}
-
-function noop () {}
-
-function hmac (secret, host) {
-  return crypto.createHmac('sha256', secret).update(host).digest()
 }

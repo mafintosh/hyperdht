@@ -1,13 +1,15 @@
 {
   "name": "hyperdht",
   "version": "0.0.0",
-  "description": "WIP dht based on kademlia, with a focus on extensibility + modularity",
+  "description": "A DHT that supports peer discovery and distributed hole punching",
   "main": "index.js",
   "dependencies": {
-    "inherits": "^2.0.3",
+    "buffer-equals": "^1.0.4",
+    "dht-rpc": "^2.2.0",
     "ipv4-peers": "^1.1.1",
-    "k-bucket": "^3.2.1",
-    "protocol-buffers": "^3.1.6"
+    "minimist": "^1.2.0",
+    "protocol-buffers": "^3.2.1",
+    "unordered-set": "^2.0.0"
   },
   "devDependencies": {
     "standard": "^8.0.0"
@@ -18,6 +20,9 @@
   },
   "scripts": {
     "test": "standard"
+  },
+  "bin": {
+    "hyperdht": "./bin.js"
   },
   "author": "Mathias Buus (@mafintosh)",
   "license": "MIT",

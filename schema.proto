@@ -1,0 +1,10 @@
+message Request {
+  required uint32 type = 1;
+  optional uint32 port = 2;
+  optional bytes localAddress = 3;
+}
+
+message Response {
+  optional bytes peers = 1;
+  optional bytes localPeers = 2;
+}
