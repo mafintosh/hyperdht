@@ -109,6 +109,10 @@ Wait for the dht to be fully bootstrapped. You do not need to call this before a
 
 Destroy the dht and stop listening.
 
+#### `dht.bootstrap([callback])`
+
+Re-bootstrap the DHT. Call this at regular intervals if you do not announce/lookup any keys.
+
 #### `dht.listen(port, callback)`
 
 Explicitly listen on a port. If you do not call this a random port will be chosen for you.

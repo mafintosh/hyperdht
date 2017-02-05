@@ -131,6 +131,10 @@ HyperDHT.prototype.address = function () {
   return this.dht.address()
 }
 
+HyperDHT.prototype.bootstrap = function (cb) {
+  this.dht.bootstrap(cb)
+}
+
 HyperDHT.prototype.listen = function (port, cb) {
   this.dht.listen(port, cb)
 }

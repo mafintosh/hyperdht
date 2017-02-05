@@ -39,3 +39,12 @@ dht.on('lookup', function (key) {
 dht.listen(argv.port, function () {
   console.log('hyperdht listening on ' + dht.address().port)
 })
+
+dht.ready(function loop () {
+  if (!argv.quiet) console.log('bootstrapped...')
+  setTimeout(bootstrap, Math.floor((5 + Math.random() * 60) * 1000))
+
+  function bootstrap () {
+    dht.bootstrap(loop)
+  }
+})
