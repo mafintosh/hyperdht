@@ -1,6 +1,6 @@
 {
   "name": "hyperdht",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "A DHT that supports peer discovery and distributed hole punching",
   "main": "index.js",
   "dependencies": {
