@@ -17,7 +17,12 @@ module.exports = HyperDHT
 
 function HyperDHT (opts) {
   if (!(this instanceof HyperDHT)) return new HyperDHT(opts)
+  if (!opts) opts = {}
   events.EventEmitter.call(this)
+
+  if (opts.bootstrap) {
+    opts.bootstrap = [].concat(opts.bootstrap).map(parseBootstrap)
+  }
 
   this.dht = dht(opts)
   this.id = this.dht.id
@@ -251,6 +256,10 @@ function decodeLocalPeers (buf, localAddress) {
   }
 
   return localPeers
+}
+
+function parseBootstrap (node) {
+  return node.indexOf(':') === -1 ? node + ':49737' : node
 }
 
 function encodePeer (p) {
