@@ -96,6 +96,10 @@ Find peers but do not announce. Accepts the same options as `announce` and retur
 
 Remove yourself from the DHT. Pass the same options as you used to announce yourself.
 
+#### `dht.ping(peer, callback)`
+
+Ping a another DHT peer. Useful if you want to see if you can connect to a node without holepunching.
+
 #### `dht.holepunch(peer, node, callback)`
 
 UDP holepunch to another peer. Pass the same node as was returned in the announce/lookup stream

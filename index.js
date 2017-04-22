@@ -147,6 +147,10 @@ HyperDHT.prototype.ready = function (cb) {
   this.dht.ready(cb)
 }
 
+HyperDHT.prototype.ping = function (peer, cb) {
+  this.dht.ping(peer, cb)
+}
+
 HyperDHT.prototype.holepunch = function (peer, ref, cb) {
   if (ref.id && equals(ref.id, this.id)) return cb()
   this.dht.holepunch(peer, ref, cb)
