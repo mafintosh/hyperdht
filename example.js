@@ -12,6 +12,7 @@ a.ready(function () {
   // announce on a 32 byte key
   var key = new Buffer('01234567012345670123456701234567')
 
+  console.log('announcing port...')
   b.announce(key, {port: 10000}, function (err) {
     if (err) throw err
 
@@ -19,6 +20,14 @@ a.ready(function () {
 
     stream.on('data', function (data) {
       console.log('found peers:', data)
+    })
+    
+    stream.on('end', function () {
+      console.log('unannouncing...')
+      b.unannounce(key, {port: 10000}, function (err) {
+        if (err) throw err
+        process.exit()
+      })
     })
   })
 })
