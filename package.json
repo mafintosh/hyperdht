@@ -5,7 +5,7 @@
   "main": "index.js",
   "dependencies": {
     "buffer-equals": "^1.0.4",
-    "dht-rpc": "^2.3.0",
+    "dht-rpc": "^3.0.1",
     "inherits": "^2.0.3",
     "ipv4-peers": "^1.1.1",
     "minimist": "^1.2.0",
