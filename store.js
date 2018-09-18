@@ -13,7 +13,7 @@ function Store (opts) {
   this._pLists = {}
   this._size = 0
   this.max = opts.max || 65536
-  this.maxAge = opts.maxAge || 6 * 60 * 1024
+  this.maxAge = opts.maxAge || 12 * 60 * 1000
 }
 
 Store.prototype.has = function (key) {
